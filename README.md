@@ -578,12 +578,12 @@ Parar stress:
 docker exec -it obs-node-app-01 bash -lc "cd /opt/incident_simulations && ./cpu_memory_stress.sh stop"
 ```
 
-### Chaos de rede
+### Caos de rede
 
 Script:
 
 ```text
-incident_simulations/network_chaos.sh
+incident_simulations/network_caos.sh
 ```
 
 Aplicar latência e perda por 120 segundos:

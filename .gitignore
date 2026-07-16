@@ -13,3 +13,6 @@ volumes/grafana/data/*
 # Certificados/chaves locais
 volumes/**/ssl/keys/*
 !volumes/**/ssl/keys/.gitkeep
+
+# Arquivo local de variáveis de ambiente
+.env
