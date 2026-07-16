@@ -1,0 +1,20 @@
+{
+  "yaml_parse": true,
+  "services": [
+    "grafana",
+    "node-app-01",
+    "node-app-02",
+    "postgres-app",
+    "postgres-zabbix",
+    "prometheus",
+    "zabbix-server",
+    "zabbix-web-nginx-pgsql"
+  ],
+  "readme_exists": true,
+  "github_description_exists": true,
+  "git_push_template_exists": true,
+  "readme_has_roadmap": true,
+  "readme_has_restore": true,
+  "readme_has_zabbix": true,
+  "readme_has_examples": true
+}

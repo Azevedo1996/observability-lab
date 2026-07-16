@@ -1,0 +1,15 @@
+# Dados persistentes locais dos bancos
+volumes/postgres-zabbix/data/*
+!volumes/postgres-zabbix/data/
+volumes/postgres-app/data/*
+!volumes/postgres-app/data/
+
+# Dados persistentes de observabilidade
+volumes/prometheus/data/*
+!volumes/prometheus/data/.gitkeep
+volumes/grafana/data/*
+!volumes/grafana/data/.gitkeep
+
+# Certificados/chaves locais
+volumes/**/ssl/keys/*
+!volumes/**/ssl/keys/.gitkeep

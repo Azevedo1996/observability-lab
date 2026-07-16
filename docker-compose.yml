@@ -1,0 +1,207 @@
+name: observability-lab
+services:
+  postgres-zabbix:
+    image: postgres:16-alpine
+    container_name: obs-postgres-zabbix
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ZABBIX_POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${ZABBIX_POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_POSTGRES_PASSWORD:-zabbix_lab_password}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+    - ${ZABBIX_POSTGRES_PORT:-5432}:5432
+    volumes:
+    - ./volumes/postgres-zabbix/data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+    - obs-network
+  postgres-app:
+    image: postgres:16-alpine
+    container_name: obs-postgres-app
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${APP_POSTGRES_DB:-appdb}
+      POSTGRES_USER: ${APP_POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:-app_lab_password}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+    - ${APP_POSTGRES_PORT:-5433}:5432
+    volumes:
+    - ./volumes/postgres-app/data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+    - obs-network
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:${ZABBIX_IMAGE_FLAVOR:-ol}-${ZABBIX_VERSION:-7.4}-latest
+    container_name: obs-zabbix-server
+    restart: unless-stopped
+    depends_on:
+      postgres-zabbix:
+        condition: service_healthy
+    environment:
+      DB_SERVER_HOST: postgres-zabbix
+      DB_SERVER_PORT: '5432'
+      POSTGRES_DB: ${ZABBIX_POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${ZABBIX_POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_POSTGRES_PASSWORD:-zabbix_lab_password}
+      ZBX_CACHESIZE: ${ZBX_CACHESIZE:-128M}
+      ZBX_HISTORYCACHESIZE: ${ZBX_HISTORYCACHESIZE:-64M}
+      ZBX_TRENDCACHESIZE: ${ZBX_TRENDCACHESIZE:-64M}
+      ZBX_VALUECACHESIZE: ${ZBX_VALUECACHESIZE:-128M}
+      ZBX_STARTPINGERS: ${ZBX_STARTPINGERS:-5}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+    - ${ZABBIX_SERVER_PORT:-10051}:10051
+    volumes:
+    - ./volumes/zabbix-server/alertscripts:/usr/lib/zabbix/alertscripts
+    - ./volumes/zabbix-server/externalscripts:/usr/lib/zabbix/externalscripts
+    - ./volumes/zabbix-server/modules:/var/lib/zabbix/modules
+    - ./volumes/zabbix-server/enc:/var/lib/zabbix/enc
+    - ./volumes/zabbix-server/ssh_keys:/var/lib/zabbix/ssh_keys
+    - ./volumes/zabbix-server/ssl/certs:/var/lib/zabbix/ssl/certs
+    - ./volumes/zabbix-server/ssl/keys:/var/lib/zabbix/ssl/keys
+    networks:
+    - obs-network
+  zabbix-web-nginx-pgsql:
+    image: zabbix/zabbix-web-nginx-pgsql:${ZABBIX_IMAGE_FLAVOR:-ol}-${ZABBIX_VERSION:-7.4}-latest
+    container_name: obs-zabbix-web
+    restart: unless-stopped
+    depends_on:
+      postgres-zabbix:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_started
+    environment:
+      DB_SERVER_HOST: postgres-zabbix
+      DB_SERVER_PORT: '5432'
+      POSTGRES_DB: ${ZABBIX_POSTGRES_DB:-zabbix}
+      POSTGRES_USER: ${ZABBIX_POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_POSTGRES_PASSWORD:-zabbix_lab_password}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: '10051'
+      ZBX_SERVER_NAME: ${ZBX_SERVER_NAME:-Observability Lab}
+      PHP_TZ: ${TZ:-America/Sao_Paulo}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+    - ${ZABBIX_WEB_HTTP_PORT:-8089}:8080
+    - ${ZABBIX_WEB_HTTPS_PORT:-8443}:8443
+    volumes:
+    - ./volumes/zabbix-web/ssl/certs:/etc/ssl/nginx/certs
+    - ./volumes/zabbix-web/ssl/keys:/etc/ssl/nginx/keys
+    networks:
+    - obs-network
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-latest}
+    container_name: obs-prometheus
+    restart: unless-stopped
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --web.console.libraries=/usr/share/prometheus/console_libraries
+    - --web.console.templates=/usr/share/prometheus/consoles
+    - --web.enable-lifecycle
+    ports:
+    - ${PROMETHEUS_PORT:-9090}:9090
+    volumes:
+    - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./volumes/prometheus/data:/prometheus
+    depends_on:
+    - node-app-01
+    - node-app-02
+    networks:
+    - obs-network
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-latest}
+    container_name: obs-grafana
+    restart: unless-stopped
+    depends_on:
+    - prometheus
+    - zabbix-web-nginx-pgsql
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_lab_password}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_INSTALL_PLUGINS: ${GRAFANA_INSTALL_PLUGINS:-alexanderzobnin-zabbix-app}
+    ports:
+    - ${GRAFANA_PORT:-3000}:3000
+    volumes:
+    - ./volumes/grafana/data:/var/lib/grafana
+    - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+    - obs-network
+  node-app-01:
+    build:
+      context: ./docker/targets/rocky-node
+      dockerfile: Dockerfile
+      args:
+        ZABBIX_MAJOR_VERSION: ${ZABBIX_MAJOR_VERSION:-7.4}
+        NODE_EXPORTER_VERSION: ${NODE_EXPORTER_VERSION:-1.10.2}
+    image: observability-lab/rocky-node-target:${TARGET_IMAGE_VERSION:-part4}
+    container_name: obs-node-app-01
+    hostname: node-app-01
+    restart: unless-stopped
+    depends_on:
+    - zabbix-server
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: '10051'
+      ZBX_AGENT_HOSTNAME: node-app-01
+      NODE_EXPORTER_LISTEN_ADDRESS: :9100
+    expose:
+    - '10050'
+    - '9100'
+    networks:
+    - obs-network
+    cap_add:
+    - NET_ADMIN
+    volumes:
+    - ./incident_simulations:/opt/incident_simulations:ro
+  node-app-02:
+    build:
+      context: ./docker/targets/rocky-node
+      dockerfile: Dockerfile
+      args:
+        ZABBIX_MAJOR_VERSION: ${ZABBIX_MAJOR_VERSION:-7.4}
+        NODE_EXPORTER_VERSION: ${NODE_EXPORTER_VERSION:-1.10.2}
+    image: observability-lab/rocky-node-target:${TARGET_IMAGE_VERSION:-part4}
+    container_name: obs-node-app-02
+    hostname: node-app-02
+    restart: unless-stopped
+    depends_on:
+    - zabbix-server
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: '10051'
+      ZBX_AGENT_HOSTNAME: node-app-02
+      NODE_EXPORTER_LISTEN_ADDRESS: :9100
+    expose:
+    - '10050'
+    - '9100'
+    networks:
+    - obs-network
+    cap_add:
+    - NET_ADMIN
+    volumes:
+    - ./incident_simulations:/opt/incident_simulations:ro
+networks:
+  obs-network:
+    name: obs-network
+    driver: bridge
